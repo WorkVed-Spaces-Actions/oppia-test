@@ -56,7 +56,6 @@ jobs:
               });
 
               console.log(`Creating comment: ${comment}`);
-              // Custom HTML escaping: replace &, <, >, ", and '.
               const escapeHTML = (str) => {
                 const escapeMap = {
                   '&': '&amp;',
@@ -79,42 +78,41 @@ jobs:
               });
             }
 
-            // Check for "good first issue" label using GraphQL API v4.
+            // Check for "good first issue" label
             if (labelName === "good first issue") {
-              // Define the team slug and organization.
-              const teamSlug = "oppia-good-first-issue-labelers";
-              const orgName = "WorkVed-Spaces-Actions";
-              console.log(`Checking membership for team ${teamSlug} in organization ${orgName} for user ${username}`);
-
-              // GraphQL query: returns membership for the user if present; null otherwise.
               const query = `
-                query($org: String!, $teamSlug: String!, $user: String!) {
+                query($org: String!, $teamSlug: String!) {
                   organization(login: $org) {
                     team(slug: $teamSlug) {
-                      membershipForUser(login: $user) {
-                        role
+                      members(first: 100) {
+                        nodes {
+                          login
+                        }
                       }
                     }
                   }
                 }
               `;
-              let membership;
-              try {
-                const result = await github.graphql(query, { org: orgName, teamSlug, user: username });
-                membership = result.organization.team.membershipForUser;
-                console.log("Membership for user:", membership);
-              } catch (error) {
-                throw new Error(`Error fetching membership for team '${teamSlug}': ${error.message}`);
-              }
 
-              if (!membership) {
-                await removeLabelAndComment(
-                  labelName,
-                  `Hi @${username}, only users from the [oppia-good-first-issue-labelers](https://github.com/orgs/oppia/teams/oppia-good-first-issue-labelers) team can add the 'good first issue' label. Please reach out to them if needed. Thanks!`
-                );
-                throw new Error(`User @${username} is not permitted to add the 'good first issue' label.`);
-              } else {
-                console.log("User is allowed to add the 'good first issue' label.");
+              try {
+                const result = await github.graphql(query, { 
+                  org: "WorkVed-Spaces-Actions", 
+                  teamSlug: "oppia-good-first-issue-labelers"
+                });
+                
+                const teamMembers = result.organization.team.members.nodes.map(member => member.login);
+                const isMember = teamMembers.includes(username);
+                
+                if (!isMember) {
+                  await removeLabelAndComment(
+                    labelName,
+                    `Hi @${username}, only users from the [oppia-good-first-issue-labelers](https://github.com/orgs/WorkVed-Spaces-Actions/teams/oppia-good-first-issue-labelers) team can add the 'good first issue' label. Please reach out to them if needed. Thanks!`
+                  );
+                  throw new Error(`User @${username} is not permitted to add the 'good first issue' label.`);
+                }
+              } catch (error) {
+                console.error("Membership check failed:", error);
+                throw error;
               }
             }
 
@@ -127,10 +125,3 @@ jobs:
               );
               throw new Error(`The label '${labelName}' is reserved for pull requests.`);
             }
-
-      - name: Report failure if failed on oppia/oppia develop branch
-        if: ${{ failure() && github.event_name == 'push' && github.repository == 'oppia/oppia' && github.ref == 'refs/heads/develop'}}
-        uses: ./.github/actions/send-webhook-notification
-        with:
-          message: "Prettier formatting failed on the upstream develop branch."
-          webhook-url: ${{ secrets.BUILD_FAILURE_ROOM_WEBHOOK_URL }}
