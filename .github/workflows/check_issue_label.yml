@@ -83,7 +83,7 @@ jobs:
             if (labelName === "good first issue") {
               // Define the team slug and organization.
               const teamSlug = "oppia-good-first-issue-labelers";
-              const orgName = "oppia";
+              const orgName = "WorkVed-Spaces-Actions";
               console.log(`Checking membership for team ${teamSlug} in organization ${orgName} for user ${username}`);
 
               // GraphQL query: returns membership for the user if present; null otherwise.
