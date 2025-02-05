@@ -42,6 +42,7 @@ jobs:
               throw new Error(`Invalid username: ${username}`);
             }
 
+            // Helper function to remove a label and create a comment.
             async function removeLabelAndComment(label, comment) {
               console.log(`Removing label: ${label}`);
               await github.rest.issues.removeLabel({
@@ -55,6 +56,7 @@ jobs:
               });
 
               console.log(`Creating comment: ${comment}`);
+              // Custom HTML escaping: replace &, <, >, ", and '.
               const escapeHTML = (str) => {
                 const escapeMap = {
                   '&': '&amp;',
@@ -77,24 +79,35 @@ jobs:
               });
             }
 
+            // Check for "good first issue" label using GraphQL API v4.
             if (labelName === "good first issue") {
+              // Define the team slug and organization.
               const teamSlug = "oppia-good-first-issue-labelers";
               const orgName = "oppia";
-              console.log(`Fetching team members for team ${teamSlug} in organization ${orgName}`);
-              let allowedUsers = [];
-              try {
-                const teamMembersResponse = await github.rest.teams.listMembersInOrg({
-                  org: orgName,
-                  team_slug: teamSlug
-                });
-                allowedUsers = teamMembersResponse.data.map(member => member.login);
-                console.log("Allowed users from team:", allowedUsers);
-              } catch (error) {
-                throw new Error(`Error fetching team members for team '${teamSlug}': ${error.message}`);
-              }
-              const allowedUsersSet = new Set(allowedUsers);
+              console.log(`Checking membership for team ${teamSlug} in organization ${orgName} for user ${username}`);
 
-              if (!allowedUsersSet.has(username)) {
+              // GraphQL query: returns membership for the user if present; null otherwise.
+              const query = `
+                query($org: String!, $teamSlug: String!, $user: String!) {
+                  organization(login: $org) {
+                    team(slug: $teamSlug) {
+                      membershipForUser(login: $user) {
+                        role
+                      }
+                    }
+                  }
+                }
+              `;
+              let membership;
+              try {
+                const result = await github.graphql(query, { org: orgName, teamSlug, user: username });
+                membership = result.organization.team.membershipForUser;
+                console.log("Membership for user:", membership);
+              } catch (error) {
+                throw new Error(`Error fetching membership for team '${teamSlug}': ${error.message}`);
+              }
+
+              if (!membership) {
                 await removeLabelAndComment(
                   labelName,
                   `Hi @${username}, only users from the [oppia-good-first-issue-labelers](https://github.com/orgs/oppia/teams/oppia-good-first-issue-labelers) team can add the 'good first issue' label. Please reach out to them if needed. Thanks!`
@@ -105,6 +118,7 @@ jobs:
               }
             }
 
+            // Labels that should only be used in pull requests.
             const prLabels = new Set(["dependencies", "stale"]);
             if (prLabels.has(labelName) || labelName.startsWith("PR:")) {
               await removeLabelAndComment(
