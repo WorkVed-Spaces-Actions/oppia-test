@@ -38,7 +38,7 @@ jobs:
     permissions:
       pull-requests: write
     # Only run if the workflow finished and its conclusion is 'failure'
-    if: ${{ !cancelled() && needs.full_stack_tests_completed.outputs.conclusion == 'failure' }}
+    if: ${{ needs.full_stack_tests_completed.outputs.conclusion == 'failure' }}
     runs-on: ubuntu-22.04
     steps:
       - name: Leave a comment on the PR if the workflow failed
