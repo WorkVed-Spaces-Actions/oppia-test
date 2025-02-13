@@ -1,4 +1,4 @@
-name: Comment on Workflows
+name: Comment on CI Workflows
 
 on:
   pull_request_target:
@@ -9,22 +9,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test_comment:
+  comment_on_ci_results:
+    name: Comment On CI Workflows
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
     strategy:
       matrix:
-        test_name: ["Full Stack Tests", "Backend Unit Tests", "Frontend Unit Tests"]
+        test_name: ["Full-Stack Tests", "Backend Unit Test Suite", "Frontend Unit Test Suite"]
         include:
-          - test_name: "Full Stack Tests"
+          - test_name: "Full-Stack Tests"
             workflow_file: "full_stack_tests.yml"
-          - test_name: "Backend Unit Tests"
+          - test_name: "Backend Unit Test Suite"
             workflow_file: "backend_unit_tests.yml"
-          - test_name: "Frontend Unit Tests"
+          - test_name: "Frontend Unit Test Suite"
             workflow_file: "frontend_unit_tests.yml"
     steps:
-      - name: Wait for Test Workflow to Complete
+      - name: Await Test Workflow Completion
         id: wait
         uses: ArcticLampyrid/action-wait-for-workflow@v1.2.0
         with:
@@ -35,13 +36,13 @@ jobs:
             failure
             action_required
 
-      - name: Check for Manual Approval Requirement
+      - name: Verify Manual Approval Requirement
         if: ${{ steps.wait.outputs.run-conclusion == 'action_required' }}
         run: |
           echo "::error::First-time contributor workflows require manual approval. After approval, please re-run the comment workflows to post the report."
           exit 1
 
-      - name: Post Comment if Test Fails
+      - name: Notify on Test Failure
         if: ${{ steps.wait.outputs.run-conclusion == 'failure' && !cancelled() }}
         uses: peter-evans/create-or-update-comment@v3
         with:
