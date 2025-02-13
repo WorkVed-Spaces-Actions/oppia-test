@@ -11,6 +11,8 @@ concurrency:
 jobs:
   test_comment:
     runs-on: ubuntu-22.04
+    permissions:
+      pull-requests: write
     strategy:
       matrix:
         test_name: ["Full Stack Tests", "Backend Unit Tests", "Frontend Unit Tests"]
