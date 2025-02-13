@@ -45,7 +45,6 @@ jobs:
         if: ${{ steps.wait.outputs.run-conclusion == 'failure' && !cancelled() }}
         uses: peter-evans/create-or-update-comment@v3
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
             🛠️ Hi @${{ github.event.pull_request.user.login }}, it looks like the **${{ matrix.test_name }}** are failing on your PR.
