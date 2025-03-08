@@ -16,19 +16,16 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            // Strict sanitization functions
             const sanitizeUsername = (input) => {
               const allowed = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
-              return typeof input === 'string' 
-                ? (allowed.test(input) ? input.trim() : '')
-                : '';
+              if (typeof input !== 'string') return '';
+              return allowed.test(input) ? input : '';
             };
 
             const sanitizeRepo = (input) => {
               const allowed = /^[A-Za-z0-9_.-]{1,100}$/;
-              return typeof input === 'string'
-                ? (allowed.test(input) ? input.trim() : '')
-                : '';
+              if (typeof input !== 'string') return '';
+              return allowed.test(input) ? input : '';
             };
 
             const sanitizePrNumber = (num) => {
@@ -36,62 +33,45 @@ jobs:
               return Number.isInteger(n) && n > 0 ? n : NaN;
             };
 
-            // Validate context payload
-            const validateContext = () => {
-              if (!context.payload || !context.payload.issue || !context.payload.repository) {
-                core.setFailed('Invalid event payload structure');
-                return false;
-              }
-              return true;
-            };
+            if (!context.payload?.issue || !context.payload.repository) {
+              core.setFailed('Invalid event payload');
+              return;
+            }
 
-            if (!validateContext()) return;
-
-            // Sanitize PR number
-            const rawPrNumber = context.payload.issue?.number;
-            const prNumber = sanitizePrNumber(rawPrNumber);
+            const prNumber = sanitizePrNumber(context.payload.issue.number);
             if (isNaN(prNumber)) {
-              core.setFailed(`Invalid PR number: ${rawPrNumber}`);
+              core.setFailed(`Invalid PR number: ${context.payload.issue.number}`);
               return;
             }
 
-            // Sanitize repository info
-            const rawRepo = context.payload.repository?.name;
-            const rawOwner = context.payload.repository?.owner?.login;
-            const repo = sanitizeRepo(rawRepo);
-            const owner = sanitizeUsername(rawOwner); // Owner follows username rules
-            
+            const repo = sanitizeRepo(context.payload.repository.name);
+            const owner = sanitizeUsername(context.payload.repository.owner.login);
             if (!repo || !owner) {
-              core.setFailed(`Invalid repository (${repo}) or owner (${owner})`);
+              core.setFailed(`Invalid repo (${repo}) or owner (${owner})`);
               return;
             }
 
-            // Sanitize comment content
-            const rawComment = context.payload.comment?.body || '';
-            const comment = rawComment.trim().slice(0, 1000); // Limit length
-
-            // Enhanced regex with strict boundaries
+            const comment = (context.payload.comment?.body || '').trim();
             const reviewerPattern = /^((?:@[\w-]+[\s,]*)+)\s+(ptal|take\s+a\s+pass|please\s+review)\b/i;
             const match = comment.match(reviewerPattern);
             if (!match) {
-              console.log('No valid PTAL pattern found');
+              console.log('No PTAL pattern found');
               return;
             }
 
-            // Process reviewers with strict validation
             const reviewers = match[1]
-              .split(/[\s,]+/g)
-              .map(u => u.replace(/^@+/, '')) // Remove leading @
+              .split(/@+/)
+              .map(part => part.trim().replace(/[\s,]+/g, ''))
+              .filter(part => part)
               .map(sanitizeUsername)
-              .filter(u => u.length > 0 && u !== owner); // Filter invalid and self-assign
+              .filter(u => u);
 
-            if (reviewers.length === 0) {
-              console.log('No valid reviewers after sanitization');
+            if (!reviewers.length) {
+              console.log('No valid reviewers');
               return;
             }
 
             try {
-              // Verify PR existence first
               const { data: prData } = await github.rest.issues.get({
                 owner,
                 repo,
@@ -99,42 +79,33 @@ jobs:
               });
 
               if (!prData.pull_request) {
-                core.setFailed('Issue is not a pull request');
+                core.setFailed('Issue is not a PR');
                 return;
               }
 
-              // Get current assignees with sanitization
-              const currentAssignees = prData.assignees
-                .map(a => sanitizeUsername(a.login))
-                .filter(Boolean);
-
-              // Create deduplicated list
-              const newAssignees = [...new Set([...currentAssignees, ...reviewers])];
-
-              // Update assignees using proper API endpoint
               await github.rest.issues.addAssignees({
                 owner,
                 repo,
                 issue_number: prNumber,
-                assignees: reviewers // API handles deduplication internally
+                assignees: reviewers
               });
 
-              // Post confirmation with sanitized output
-              const safeMessage = `Assigned reviewers: ${reviewers.map(u => `@${u}`).join(', ')}`;
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: prNumber,
-                body: safeMessage.slice(0, 500) // Limit comment length
-              });
-
+              const safeMessage = `Assigned reviewers: ${reviewers.map(u => `@${u}`).join(', ')}. Thank you!`;
+              if (safeMessage.length <= 500) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: prNumber,
+                  body: safeMessage
+                });
+              }
             } catch (error) {
               core.setFailed(`API Error: ${error.message}`);
             }
 
   report-failure:
     needs: assign-reviewers
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: ${{ always() && needs.assign-reviewers.result == 'failure' }}
     steps:
       - uses: actions/checkout@v4
