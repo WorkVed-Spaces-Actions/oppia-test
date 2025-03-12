@@ -26,7 +26,7 @@ jobs:
           - test_name: "Full-Stack Tests"
             workflow_file: "full_stack_tests.yml"
             message: >
-              🛠️ Hi @${{ github.event.pull_request.user.login }}, it looks like the **Comprehensive Full-Stack Tests** are failing on your PR.
+              🛠️ Hi @${{ github.event.pull_request.user.login }}, it looks like the Full-Stack Tests are failing on your PR.
               Please check the logs and follow [these instructions](https://github.com/oppia/oppia/wiki/If-CI-checks-fail-on-your-PR#introduction)
               to fix the issues, or report the error as a flake. Thanks!
           - test_name: "Backend Coverage Tests"
@@ -47,7 +47,7 @@ jobs:
     steps:
       - name: Await Test Workflow Completion
         id: wait_for_completion_of_workflow
-        uses: ArcticLampyrid/action-wait-for-workflow@v1.2.0
+        uses: ArcticLampyrid/action-wait-for-workflow@7226d2d248ed9b7e231de31209d4f5f5d4c30295
         with:
           workflow: ${{ matrix.workflow_file }}
           sha: ${{ github.event.pull_request.head.sha }}
