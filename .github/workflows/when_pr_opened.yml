@@ -346,6 +346,116 @@ jobs:
   #             });
   #           }
 
+  # check_pr_description:
+  #   name: Validate PR Description Content
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     pull-requests: write
+  #   steps:
+  #     - name: Check PR Template Compliance
+  #       uses: actions/github-script@v7
+  #       with:
+  #         script: |
+  #           const { data: pr } = await github.rest.pulls.get({
+  #             owner: context.repo.owner,
+  #             repo: context.repo.repo,
+  #             pull_number: context.payload.pull_request.number
+  #           });
+    
+  #           const REQUIRED_SECTIONS = {
+  #             '## Overview': {
+  #               validation: (body) => {
+  #                 const overviewIndex = body.indexOf('## Overview');
+  #                 if (overviewIndex === -1) return 'The body of this PR is missing the overview section, please update it to include the overview.';
+                  
+  #                 const explanation = body.split('\n').find(line => 
+  #                   line.startsWith('2. This PR does the following:')
+  #                 );
+  #                 if (explanation && explanation.includes('[Explain here what your PR does and why]')) {
+  #                   return 'The body of this PR is missing the required description, please update the body with a description of what this PR does.';
+  #                 }
+  #                 return null;
+  #               }
+  #             },
+  #             '## Essential Checklist': {
+  #               validation: (body) => {
+  #                 const checklistIndex = body.indexOf('## Essential Checklist');
+  #                 if (checklistIndex === -1) return 'The body of this PR is missing the checklist section, please update it to include the checklist.';
+                  
+  #                 // Removed specific checks for Karma and maintainer edits
+  #                 const checklistContent = body.slice(checklistIndex);
+  #                 const uncheckedItems = checklistContent.split('\n')
+  #                   .filter(line => line.startsWith('- [ ]'));
+                  
+  #                 // This array can be used for other checks if needed
+  #                 const errors = [];
+                  
+  #                 return errors.length > 0 ? errors.join(', ') : null;
+  #               }
+  #             },
+  #             '## Proof that changes are correct': {
+  #               validation: (body) => {
+  #                 const proofIndex = body.indexOf('## Proof that changes are correct');
+  #                 if (proofIndex === -1) return 'The body of this PR is missing the proof that changes are correct section, please update it to include the section.';
+                  
+  #                 const proofContent = body.slice(proofIndex);
+  #                 const proofLinks = proofContent.includes('http');
+  #                 const proofIsNotPossible = /No\s+proof\s+of\s+changes\s+needed\s+because/mi.test(proofContent);
+                  
+  #                 if (!proofLinks && !proofIsNotPossible) {
+  #                   return 'The proof that changes are correct has not been provided, please make sure to upload a image/video showing that the changes are correct. Or include a sentence saying "No proof of changes needed because" and the reason why proof of changes cannot be provided.';
+  #                 }
+  #                 return null;
+  #               }
+  #             }
+  #           };
+    
+  #           const PLACEHOLDER_REGEX = /\[[^\]]+\]/g;
+  #           const BODY_SECTIONS = [
+  #             '## Overview',
+  #             '## Essential Checklist',
+  #             '## Proof that changes are correct'
+  #           ];
+    
+  #           // Main validation logic
+  #           const validationErrors = [];
+  #           const prBody = pr.body || '';
+    
+  #           // Check for remaining placeholders
+  #           BODY_SECTIONS.forEach(section => {
+  #             const sectionStart = prBody.indexOf(section);
+  #             if (sectionStart === -1) return;
+              
+  #             const sectionEnd = prBody.indexOf('##', sectionStart + section.length);
+  #             const sectionContent = prBody.slice(sectionStart, sectionEnd !== -1 ? sectionEnd : undefined);
+              
+  #             const placeholders = sectionContent.match(PLACEHOLDER_REGEX);
+  #             if (placeholders) {
+  #               validationErrors.push(`Unresolved placeholders in ${section}: ${placeholders.join(', ')}`);
+  #             }
+  #           });
+    
+  #           // Check required sections
+  #           Object.entries(REQUIRED_SECTIONS).forEach(([section, { validation}]) => {
+  #             const error = validation(prBody);
+  #             if (error) validationErrors.push(error);
+  #           });
+    
+  #           // Create comment if errors found
+  #           if (validationErrors.length > 0) {
+  #             const commentBody = [
+  #               `Hi @${pr.user.login}, please address these template issues:`,
+  #               ...validationErrors.map(error => `- ${error}`),
+  #               'See our [contributing guidelines](https://github.com/oppia/oppia/wiki/Make-a-pull-request) for details.'
+  #             ].join('\n');
+    
+  #             await github.rest.issues.createComment({
+  #               owner: context.repo.owner,
+  #               repo: context.repo.repo,
+  #               issue_number: pr.number,
+  #               body: commentBody
+  #             });
+  #           }
   check_pr_description:
     name: Validate PR Description Content
     runs-on: ubuntu-latest
@@ -410,7 +520,6 @@ jobs:
               }
             };
     
-            const PLACEHOLDER_REGEX = /\[[^\]]+\]/g;
             const BODY_SECTIONS = [
               '## Overview',
               '## Essential Checklist',
@@ -420,20 +529,6 @@ jobs:
             // Main validation logic
             const validationErrors = [];
             const prBody = pr.body || '';
-    
-            // Check for remaining placeholders
-            BODY_SECTIONS.forEach(section => {
-              const sectionStart = prBody.indexOf(section);
-              if (sectionStart === -1) return;
-              
-              const sectionEnd = prBody.indexOf('##', sectionStart + section.length);
-              const sectionContent = prBody.slice(sectionStart, sectionEnd !== -1 ? sectionEnd : undefined);
-              
-              const placeholders = sectionContent.match(PLACEHOLDER_REGEX);
-              if (placeholders) {
-                validationErrors.push(`Unresolved placeholders in ${section}: ${placeholders.join(', ')}`);
-              }
-            });
     
             // Check required sections
             Object.entries(REQUIRED_SECTIONS).forEach(([section, { validation}]) => {
