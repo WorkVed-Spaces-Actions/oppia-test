@@ -142,48 +142,93 @@ jobs:
               });
             }
 
+
   check_pr_description:
-    name: Check PR Description
+    name: Validate PR Description Content
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
     steps:
-      - name: Validate PR Description
+      - name: Validate PR Content
         uses: actions/github-script@v7
         with:
           script: |
-            const prContext = context.payload.pull_request || {};
-            const prAuthor = prContext.user?.login || '';
-            const prBody = prContext.body || '';
+            const safeGet = (obj, path, fallback = null) => {
+              return path.split('.').reduce((acc, key) => 
+                (acc && acc[key] !== undefined) ? acc[key] : fallback, obj
+              );
+            };
 
-            // Check for required sections
+            const prContext = context.payload.pull_request || {};
+            const repositoryContext = context.repo;
+            
+            // Validate repository context
+            const repoOwner = (repositoryContext.owner || '').replace(/[^a-zA-Z0-9-]/g, '');
+            const repoName = (repositoryContext.repo || '').replace(/[^a-zA-Z0-9-]/g, '');
+            if (!repoOwner || !repoName) {
+              throw new Error('Invalid repository context');
+            }
+
+            const prNumber = Number.isInteger(prContext.number) ? prContext.number : 0;
+            if (prNumber <= 0) {
+              throw new Error(`Invalid PR number: ${prNumber}`);
+            }
+
+            const prAuthor = safeGet(prContext, 'user.login', '') || '';
+            const sanitizedAuthor = prAuthor.replace(/[^a-zA-Z0-9_-]/g, '');
+            const prBody = (prContext.body || '').toLowerCase();
+
+            // Check for unmodified placeholder patterns
+            const placeholderChecks = {
+              'Issue Number': /#\[fill_in_number_here\]/i,
+              'PR Description': /\[explain here what your pr does and why\]/i,
+              'Bug Cause': /\[explain what the cause of the bug was/i,
+              'Generic Placeholders': /\[[^\]]+\]/g
+            };
+
+            const missingElements = [];
+
+            // Check specific overview points
+            if (placeholderChecks['Issue Number'].test(prBody)) {
+              missingElements.push('Issue number reference (#[fill_in_number_here])');
+            }
+            if (placeholderChecks['PR Description'].test(prBody)) {
+              missingElements.push('PR purpose description ([Explain here...])');
+            }
+            if (placeholderChecks['Bug Cause'].test(prBody)) {
+              missingElements.push('Bug cause explanation ([Explain what...])');
+            }
+
+            // Check for remaining generic placeholders in key sections
             const requiredSections = [
               '## Essential Checklist',
               '## Testing doc',
               '## Proof that changes are correct'
             ];
-            const missingSections = requiredSections.filter(section => !prBody.includes(section));
 
-            if (missingSections.length > 0) {
-              const missingList = missingSections.map(s => `- ${s}`).join('\n');
-              const commentMessage = `Hi @${prAuthor}, your PR is missing the following required sections:\n${missingList}\nPlease add them to the PR description. Thank you!`;
+            requiredSections.forEach(section => {
+              const sectionContent = prBody.split(section.toLowerCase())[1]?.split('##')[0] || '';
+              const hasPlaceholders = placeholderChecks['Generic Placeholders'].test(sectionContent);
+              if (hasPlaceholders) {
+                missingElements.push(`Unfilled placeholders in ${section}`);
+              }
+            });
+
+            // Create guidance comment if any placeholders found
+            if (missingElements.length > 0) {
+              const commentMessage = `Hi @${sanitizedAuthor}, please complete these required elements:\n${
+                missingElements.map(e => `- ${e}`).join('\n')
+              }\n\nGuidance:\n` +
+                "1. For issue number: Add the relevant issue ID after # (e.g., #1234)\n" +
+                "2. For PR description: Clearly explain your changes and their purpose\n" +
+                "3. For bug fixes: Describe the root cause and reference the introducing PR\n" +
+                "4. Remove all other square bracket placeholders from all sections";
+
               await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prContext.number,
+                owner: repoOwner,
+                repo: repoName,
+                issue_number: prNumber,
                 body: commentMessage
-              });
-            }
-
-            // Check Overview section content
-            if (!prBody.includes('1. This PR fixes or fixes part of #') ||
-                !prBody.includes('2. This PR does the following:')) {
-              const overviewComment = `Hi @${prAuthor}, please complete the following in your PR description:\n\n1. This PR fixes or fixes part of #[fill_in_number_here].\n2. This PR does the following: [Explain here what your PR does and why]\n\nThank you!`;
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prContext.number,
-                body: overviewComment
               });
             }
 
