@@ -235,6 +235,8 @@ jobs:
   check_pr_description:
     name: Validate PR Description Content
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - name: Check PR Template Compliance
         uses: actions/github-script@v7
