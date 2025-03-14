@@ -86,8 +86,6 @@ jobs:
             // REVIEWER ASSIGNMENT
             // ======================
             if (hasIndividualReviewers) {
-              // No need for try-catch here as the error will be logged automatically
-              // and the job will fail appropriately
               // Validate at least one valid reviewer exists
               const validReviewers = requestedIndividualReviewers
                 .filter(username => validateGitHubUsername(username));
@@ -103,7 +101,6 @@ jobs:
                 assignees: validReviewers
               });
 
-              // Create comment with sanitized content
               const firstReviewer = validReviewers[0];
               const assignmentMessage = `Assigning @${firstReviewer} for the first pass review of this PR. Thanks!`;
               
@@ -145,12 +142,59 @@ jobs:
               });
             }
 
-  report-failure:
-    needs: manage_reviewers
-    runs-on: ubuntu-latest
-    if: ${{ always() && needs.manage_reviewers.result == 'failure' }}
+  check_pr_description:
+    name: Check PR Description
+    runs-on: ubuntu-22.04
+    permissions:
+      pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Validate PR Description
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prContext = context.payload.pull_request || {};
+            const prAuthor = prContext.user?.login || '';
+            const prBody = prContext.body || '';
+
+            // Check for required sections
+            const requiredSections = [
+              '## Essential Checklist',
+              '## Testing doc',
+              '## Proof that changes are correct'
+            ];
+            const missingSections = requiredSections.filter(section => !prBody.includes(section));
+
+            if (missingSections.length > 0) {
+              const missingList = missingSections.map(s => `- ${s}`).join('\n');
+              const commentMessage = `Hi @${prAuthor}, your PR is missing the following required sections:\n${missingList}\nPlease add them to the PR description. Thank you!`;
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prContext.number,
+                body: commentMessage
+              });
+            }
+
+            // Check Overview section content
+            if (!prBody.includes('1. This PR fixes or fixes part of #') ||
+                !prBody.includes('2. This PR does the following:')) {
+              const overviewComment = `Hi @${prAuthor}, please complete the following in your PR description:\n\n1. This PR fixes or fixes part of #[fill_in_number_here].\n2. This PR does the following: [Explain here what your PR does and why]\n\nThank you!`;
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prContext.number,
+                body: overviewComment
+              });
+            }
+
+  report-failure:
+    name: Report Failure
+    needs: [manage_reviewers, check_pr_description]
+    runs-on: ubuntu-latest
+    if: ${{ always() && (needs.manage_reviewers.result == 'failure' || needs.check_pr_description.result == 'failure') }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
       - name: Send notification
         uses: ./.github/actions/send-webhook-notification
         with:
