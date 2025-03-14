@@ -274,7 +274,7 @@ jobs:
                   if (uncheckedItems.some(line => line.includes('linter/Karma'))) {
                     errors.push('Karma/linter checks not passed locally');
                   }
-                  if (uncheckedItems.some(line => line.includes('allow edits from maintainers')) {
+                  if (uncheckedItems.some(line => line.includes('allow edits from maintainers'))) {
                     errors.push('"Allow edits from maintainers" not checked');
                   }
                   return errors.length > 0 ? errors.join(', ') : null;
