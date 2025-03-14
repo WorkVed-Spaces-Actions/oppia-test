@@ -12,8 +12,7 @@ The Oppia web application is built using Python, Angular, and Google App Engine.
 - [GitHub Discussions](https://github.com/oppia/oppia/discussions)
 - [File an issue](https://github.com/oppia/oppia/issues/new/choose)
 
-You can also sign up to our [email newsletter](https://shorturl.at/CHPY6) for news and updates about the Oppia project.
-
+You can also sign up to our [email newsletter](https://shorturl.at/CHPY6) for news and updates about the Oppi
 <p align="center">
   <a href="http://www.youtube.com/watch?v=Ntcw0H0hwPU" target="_blank" rel="noopener">
     <img src="https://user-images.githubusercontent.com/30050862/228266651-1270bedc-658a-40d8-8ab4-16b63de4deaf.png">
