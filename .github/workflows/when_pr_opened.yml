@@ -10,22 +10,32 @@ jobs:
   manage_reviewers:
     name: Manage Reviewers and Notifications
     runs-on: ubuntu-22.04
-    permissions:
-      pull-requests: write
+    permissions: write-all
     steps:
       - name: Validate PR Branch
         id: validate-branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Extract branch name from PR context
-          PR_BRANCH=$(jq -r '.pull_request.head.ref' <<< "${{ toJson(github.event) }}")
-          
-          # Check for invalid branch patterns
+          # Get PR number from context
+          PR_NUMBER=${{ github.event.pull_request.number }}
+
+          # Get PR details using GitHub API
+          PR_DETAILS=$(curl -s \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER")
+
+          # Extract branch name using pattern matching
+          PR_BRANCH=$(echo "$PR_DETAILS" | grep -Po '"ref": "\K[^"]+' | head -1)
+
+          # Validate branch pattern
           if [[ "$PR_BRANCH" =~ ^(develop|release-|test-) ]]; then
-            echo "::error::PR created from invalid branch: $PR_BRANCH"
-            echo "Error: PRs cannot be created from protected branches (develop, release-*, or test-*)"
+            echo "::error::PRs cannot be created from protected branches (develop, release-*, or test-*)"
+            echo "Invalid branch detected: $PR_BRANCH"
             exit 1
           fi
-          echo "PR branch validation passed: $PR_BRANCH"
+          echo "Valid PR branch: $PR_BRANCH"
 
       - name: Handle Reviewers and Notifications
         uses: actions/github-script@v7
