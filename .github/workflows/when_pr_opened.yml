@@ -10,31 +10,48 @@ jobs:
   manage_reviewers:
     name: Manage Reviewers and Notifications
     runs-on: ubuntu-22.04
-    permissions: write-all
+    permissions:
+      pull-requests: write
     steps:
       - name: Validate PR Branch
         id: validate-branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get PR number from context
+          # Get PR details
           PR_NUMBER=${{ github.event.pull_request.number }}
+          PR_URL="https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER"
 
-          # Get PR details using GitHub API
-          PR_DETAILS=$(curl -s \
+          # Fetch PR data
+          PR_DATA=$(curl -s \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER")
+            "$PR_URL")
 
-          # Extract branch name using pattern matching
-          PR_BRANCH=$(echo "$PR_DETAILS" | grep -Po '"ref": "\K[^"]+' | head -1)
+          # Extract branch name
+          PR_BRANCH=$(echo "$PR_DATA" | grep -Po '"ref": "\K[^"]+' | head -1)
 
-          # Validate branch pattern
+          # Check for invalid branches
           if [[ "$PR_BRANCH" =~ ^(develop|release-|test-) ]]; then
-            echo "::error::PRs cannot be created from protected branches (develop, release-*, or test-*)"
-            echo "Invalid branch detected: $PR_BRANCH"
-            exit 1
+            # Post closure explanation comment
+            ERROR_MESSAGE="This PR has been automatically closed because it was created from a protected branch (\`$PR_BRANCH\`).\\n\\nPlease create a new PR from a feature branch. Protected branches are: develop, release-*, test-*"
+            curl -X POST \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
+              -d "{\"body\":\"$ERROR_MESSAGE\"}"
+
+            # Close the PR
+            curl -X PATCH \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "$PR_URL" \
+              -d '{"state":"closed"}'
+
+            echo "::error::PR created from invalid branch: $PR_BRANCH"
+            exit 1  # Exit with error to trigger failure reporting
           fi
+
           echo "Valid PR branch: $PR_BRANCH"
 
       - name: Handle Reviewers and Notifications
