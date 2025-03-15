@@ -4,52 +4,65 @@ on:
   pull_request_target:
     types: [opened]
 
-permissions: read-all
+permissions:
+  contents: read
+  pull-requests: write  # Explicit permission for PR closure
 
 jobs:
   manage_reviewers:
     name: Manage Reviewers and Notifications
     runs-on: ubuntu-22.04
-    permissions:
-      pull-requests: write
     steps:
-      - name: Validate PR Branch
+      - name: Validate and Close Invalid Branch PRs
         id: validate-branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get PR details
-          PR_NUMBER=${{ github.event.pull_request.number }}
-          PR_URL="https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER"
+          set -euxo pipefail  # Enable strict error checking
 
-          # Fetch PR data
-          PR_DATA=$(curl -s \
+          # Get PR information from context
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          API_URL="https://api.github.com/repos/${{ github.repository }}"
+
+          # Get PR details with error handling
+          PR_DATA=$(curl -f -s \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
-            "$PR_URL")
+            "$API_URL/pulls/$PR_NUMBER" || echo "null")
 
-          # Extract branch name
-          PR_BRANCH=$(echo "$PR_DATA" | grep -Po '"ref": "\K[^"]+' | head -1)
+          if [[ "$PR_DATA" == "null" ]]; then
+            echo "::error::Failed to fetch PR data"
+            exit 1
+          fi
 
-          # Check for invalid branches
+          # Extract branch name safely
+          PR_BRANCH=$(echo "$PR_DATA" | grep -oP '"head":.*?"ref":\s*"\K[^"]+')
+
+          # Validate branch pattern
           if [[ "$PR_BRANCH" =~ ^(develop|release-|test-) ]]; then
-            # Post closure explanation comment
-            ERROR_MESSAGE="This PR has been automatically closed because it was created from a protected branch (\`$PR_BRANCH\`).\\n\\nPlease create a new PR from a feature branch. Protected branches are: develop, release-*, test-*"
-            curl -X POST \
+            echo "::error::Detected invalid source branch: $PR_BRANCH"
+
+            # Post closure message
+            COMMENT_PAYLOAD=$(jq -n \
+              --arg msg "❌ PR Closed: Created from protected branch \`$PR_BRANCH\`\n\nProtected branches: develop, release-*, test-*" \
+              '{body: $msg}')
+
+            curl -f -X POST \
               -H "Authorization: Bearer $GITHUB_TOKEN" \
               -H "Accept: application/vnd.github.v3+json" \
-              "https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
-              -d "{\"body\":\"$ERROR_MESSAGE\"}"
+              "$API_URL/issues/$PR_NUMBER/comments" \
+              -d "$COMMENT_PAYLOAD"
 
-            # Close the PR
-            curl -X PATCH \
+            # Close PR with explicit state change
+            CLOSE_PAYLOAD=$(jq -n '{state: "closed"}')
+            curl -f -X PATCH \
               -H "Authorization: Bearer $GITHUB_TOKEN" \
               -H "Accept: application/vnd.github.v3+json" \
-              "$PR_URL" \
-              -d '{"state":"closed"}'
+              "$API_URL/pulls/$PR_NUMBER" \
+              -d "$CLOSE_PAYLOAD"
 
-            echo "::error::PR created from invalid branch: $PR_BRANCH"
-            exit 1  # Exit with error to trigger failure reporting
+            echo "::notice::Successfully closed PR from invalid branch"
+            exit 1  # Exit with error to trigger reporting
           fi
 
           echo "Valid PR branch: $PR_BRANCH"
