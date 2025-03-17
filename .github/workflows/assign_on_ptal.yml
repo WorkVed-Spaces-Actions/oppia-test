@@ -1,15 +1,145 @@
+# name: Assign Reviewers on PTAL Comment
+
+# on:
+#   issue_comment:
+#     types: [created]
+
+# jobs:
+#   assign-reviewers:
+#     if: github.event.issue.pull_request != null
+#     runs-on: ubuntu-latest  # Updated to standard runner
+#     permissions:
+#       pull-requests: write  # Only this permission is needed now
+#     steps:
+#       - name: Assign reviewers
+#         uses: actions/github-script@v6
+#         with:
+#           script: |
+#             const sanitizeUsername = (input) => {
+#               const allowed = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
+#               if (typeof input !== 'string') return '';
+#               return allowed.test(input) ? input : '';
+#             };
+
+#             const sanitizeRepo = (input) => {
+#               const allowed = /^[A-Za-z0-9_.-]{1,100}$/;
+#               if (typeof input !== 'string') return '';
+#               return allowed.test(input) ? input : '';
+#             };
+
+#             const sanitizePrNumber = (num) => {
+#               const n = Number(num);
+#               return Number.isInteger(n) && n > 0 ? n : NaN;
+#             };
+
+#             if (!context.payload?.issue || !context.payload.repository) {
+#               core.setFailed('Invalid event payload');
+#               return;
+#             }
+
+#             const prNumber = sanitizePrNumber(context.payload.issue.number);
+#             if (isNaN(prNumber)) {
+#               core.setFailed(`Invalid PR number: ${context.payload.issue.number}`);
+#               return;
+#             }
+
+#             const repo = sanitizeRepo(context.payload.repository.name);
+#             const owner = sanitizeUsername(context.payload.repository.owner.login);
+#             if (!repo || !owner) {
+#               core.setFailed(`Invalid repo (${repo}) or owner (${owner})`);
+#               return;
+#             }
+
+#             const comment = (context.payload.comment?.body || '').trim();
+#             const reviewerPattern = /^((?:@[\w-]+[\s,]*)+)\s+(ptal|take\s+a\s+pass|please\s+review)\b/i;
+#             const match = comment.match(reviewerPattern);
+#             if (!match) {
+#               console.log('No PTAL pattern found');
+#               return;
+#             }
+
+#             const reviewers = match[1]
+#               .split(/@+/)
+#               .map(part => part.trim().replace(/[\s,]+/g, ''))
+#               .filter(part => part)
+#               .map(sanitizeUsername)
+#               .filter(u => u);
+
+#             if (!reviewers.length) {
+#               console.log('No valid reviewers');
+#               return;
+#             }
+
+#             try {
+#               // Use Pulls API instead of Issues API to check if it's a PR
+#               await github.rest.pulls.get({
+#                 owner,
+#                 repo,
+#                 pull_number: prNumber
+#               });
+
+#               // Assign reviewers via Pulls API (instead of assignees via Issues API)
+#               await github.rest.pulls.requestReviewers({
+#                 owner,
+#                 repo,
+#                 pull_number: prNumber,
+#                 reviewers: reviewers
+#               });
+
+#               const safeMessage = `Assigned reviewers: ${reviewers.map(u => `@${u}`).join(', ')}. Thank you!`;
+#               if (safeMessage.length <= 500) {
+#                 await github.rest.issues.createComment({
+#                   owner,
+#                   repo,
+#                   issue_number: prNumber,
+#                   body: safeMessage
+#                 });
+#               } else {
+#                 const fallbackMessage = "The list of assignees is too long to display. Reviewers have been assigned successfully.";
+#                 await github.rest.issues.createComment({
+#                   owner,
+#                   repo,
+#                   issue_number: prNumber,
+#                   body: fallbackMessage
+#                 });
+#               }
+#             } catch (error) {
+#               if (error.status === 404) {
+#                 core.setFailed('Issue is not a PR');
+#               } else {
+#                 core.setFailed(`API Error: ${error.message}`);
+#               }
+#             }
+
+#   report-failure:
+#     needs: assign-reviewers
+#     runs-on: ubuntu-latest
+#     if: ${{ always() && needs.assign-reviewers.result == 'failure' }}
+#     steps:
+#       - uses: actions/checkout@v4
+#       - name: Send notification
+#         uses: ./.github/actions/send-webhook-notification
+#         with:
+#           message: "Failed to assign reviewers in PR workflow"
+#           webhook-url: ${{ secrets.BUILD_FAILURE_ROOM_WEBHOOK_URL }}
+
+
+
 name: Assign Reviewers on PTAL Comment
 
 on:
   issue_comment:
     types: [created]
 
+permissions: read-all
+
 jobs:
   assign-reviewers:
     if: github.event.issue.pull_request != null
-    runs-on: ubuntu-latest  # Updated to standard runner
+    runs-on: ubuntu-24.04
     permissions:
-      pull-requests: write  # Only this permission is needed now
+      pull-requests: write
+      issues: write
     steps:
       - name: Assign reviewers
         uses: actions/github-script@v6
@@ -20,36 +150,30 @@ jobs:
               if (typeof input !== 'string') return '';
               return allowed.test(input) ? input : '';
             };
-
             const sanitizeRepo = (input) => {
               const allowed = /^[A-Za-z0-9_.-]{1,100}$/;
               if (typeof input !== 'string') return '';
               return allowed.test(input) ? input : '';
             };
-
             const sanitizePrNumber = (num) => {
               const n = Number(num);
               return Number.isInteger(n) && n > 0 ? n : NaN;
             };
-
             if (!context.payload?.issue || !context.payload.repository) {
               core.setFailed('Invalid event payload');
               return;
             }
-
             const prNumber = sanitizePrNumber(context.payload.issue.number);
             if (isNaN(prNumber)) {
               core.setFailed(`Invalid PR number: ${context.payload.issue.number}`);
               return;
             }
-
             const repo = sanitizeRepo(context.payload.repository.name);
             const owner = sanitizeUsername(context.payload.repository.owner.login);
             if (!repo || !owner) {
               core.setFailed(`Invalid repo (${repo}) or owner (${owner})`);
               return;
             }
-
             const comment = (context.payload.comment?.body || '').trim();
             const reviewerPattern = /^((?:@[\w-]+[\s,]*)+)\s+(ptal|take\s+a\s+pass|please\s+review)\b/i;
             const match = comment.match(reviewerPattern);
@@ -57,66 +181,55 @@ jobs:
               console.log('No PTAL pattern found');
               return;
             }
-
             const reviewers = match[1]
               .split(/@+/)
-              .map(part => part.trim().replace(/[\s,]+/g, ''))
+              .map(part => part.replace(/[\s,]+/g, ''))
               .filter(part => part)
               .map(sanitizeUsername)
               .filter(u => u);
-
             if (!reviewers.length) {
               console.log('No valid reviewers');
               return;
             }
-
-            try {
-              // Use Pulls API instead of Issues API to check if it's a PR
-              await github.rest.pulls.get({
-                owner,
-                repo,
-                pull_number: prNumber
-              });
-
-              // Assign reviewers via Pulls API (instead of assignees via Issues API)
-              await github.rest.pulls.requestReviewers({
-                owner,
-                repo,
-                pull_number: prNumber,
-                reviewers: reviewers
-              });
-
-              const safeMessage = `Assigned reviewers: ${reviewers.map(u => `@${u}`).join(', ')}. Thank you!`;
-              if (safeMessage.length <= 500) {
-                await github.rest.issues.createComment({
-                  owner,
-                  repo,
-                  issue_number: prNumber,
-                  body: safeMessage
-                });
-              } else {
-                const fallbackMessage = "The list of assignees is too long to display. Reviewers have been assigned successfully.";
-                await github.rest.issues.createComment({
-                  owner,
-                  repo,
-                  issue_number: prNumber,
-                  body: fallbackMessage
-                });
-              }
-            } catch (error) {
-              if (error.status === 404) {
-                core.setFailed('Issue is not a PR');
-              } else {
-                core.setFailed(`API Error: ${error.message}`);
-              }
+            const { data: prData } = await github.rest.issues.get({
+              owner,
+              repo,
+              issue_number: prNumber
+            });
+            if (!prData.pull_request) {
+              core.setFailed('Issue is not a PR');
+              return;
             }
-
+            await github.rest.issues.addAssignees({
+              owner,
+              repo,
+              issue_number: prNumber,
+              assignees: reviewers
+            });
+            const safeMessage = `Assigned reviewers: ${reviewers.map(u => `@${u}`).join(', ')}. Thank you!`;
+            if (safeMessage.length <= 500) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body: safeMessage
+              });
+            } else {
+              const fallbackMessage = "The list of assignees is too long to display.";
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body: fallbackMessage
+              });
+            }
   report-failure:
     needs: assign-reviewers
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: ${{ always() && needs.assign-reviewers.result == 'failure' }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
       - name: Send notification
         uses: ./.github/actions/send-webhook-notification
         with:
