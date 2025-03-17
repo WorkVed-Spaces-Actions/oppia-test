@@ -15,6 +15,7 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
+
 jobs:
   run_backend_associated_test_file_checks:
     name: Verify associated test files
@@ -32,6 +33,7 @@ jobs:
         with:
           message: "Some backend files lack an associated test file."
           webhook-url: ${{ secrets.BUILD_FAILURE_ROOM_WEBHOOK_URL }}
+
   run_tests:
     name: Shard ${{ matrix.shard }}
     runs-on: ubuntu-22.04
@@ -46,7 +48,21 @@ jobs:
       - name: Run backend test shard
         id: run_backend_test_shard
         if: startsWith(github.head_ref, 'update-changelog-for-release') == false
-        run: python -m scripts.run_backend_tests --generate_coverage_report --generate_time_report --ignore_coverage --exclude_load_tests --test_shard ${{ matrix.shard }}
+        run: |
+          python -m scripts.run_backend_tests \
+            --generate_coverage_report \
+            --generate_time_report \
+            --ignore_coverage \
+            --exclude_load_tests \
+            --test_shard ${{ matrix.shard }} > backend_shard_${{ matrix.shard }}.log 2>&1
+      - name: Upload Backend Logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend_logs_shard_${{ matrix.shard }}
+          path: backend_shard_${{ matrix.shard }}.log
+          retention-days: 1
+          if-no-files-found: ignore
       - name: Report failure if failed on oppia/oppia develop branch
         if: ${{ steps.run_backend_test_shard.outputs.WORKFLOW_STATUS == 'failure' && github.event_name == 'push' && github.repository == 'oppia/oppia' && github.ref == 'refs/heads/develop'}}
         uses: ./.github/actions/send-webhook-notification
