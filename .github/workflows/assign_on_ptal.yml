@@ -4,8 +4,6 @@ on:
   issue_comment:
     types: [created]
 
-permissions: read-all
-
 jobs:
   assign-reviewers:
     if: github.event.issue.pull_request != null
@@ -56,7 +54,7 @@ jobs:
             }
             const reviewers = match[1]
               .split(/@+/)
-              .map(part => part.replace(/[\s,]+/g, ''))
+              .map(part => part.trim().replace(/[\s,]+/g, ''))
               .filter(part => part)
               .map(sanitizeUsername)
               .filter(u => u);
@@ -64,45 +62,40 @@ jobs:
               console.log('No valid reviewers');
               return;
             }
-            const { data: prData } = await github.rest.issues.get({
-              owner,
-              repo,
-              issue_number: prNumber
-            });
-            if (!prData.pull_request) {
-              core.setFailed('Issue is not a PR');
-              return;
-            }
-            await github.rest.issues.addAssignees({
-              owner,
-              repo,
-              issue_number: prNumber,
-              assignees: reviewers
-            });
-            const safeMessage = `Assigned reviewers: ${reviewers.map(u => `@${u}`).join(', ')}. Thank you!`;
-            if (safeMessage.length <= 500) {
-              await github.rest.issues.createComment({
+            try {
+              const { data: prData } = await github.rest.issues.get({
+                owner,
+                repo,
+                issue_number: prNumber
+              });
+              if (!prData.pull_request) {
+                core.setFailed('Issue is not a PR');
+                return;
+              }
+              await github.rest.issues.addAssignees({
                 owner,
                 repo,
                 issue_number: prNumber,
-                body: safeMessage
+                assignees: reviewers
               });
-            } else {
-              const fallbackMessage = "The list of assignees is too long to display.";
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: prNumber,
-                body: fallbackMessage
-              });
+              const safeMessage = `Assigned reviewers: ${reviewers.map(u => `@${u}`).join(', ')}. Thank you!`;
+              if (safeMessage.length <= 500) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: prNumber,
+                  body: safeMessage
+                });
+              }
+            } catch (error) {
+              core.setFailed(`API Error: ${error.message}`);
             }
   report-failure:
     needs: assign-reviewers
     runs-on: ubuntu-24.04
     if: ${{ always() && needs.assign-reviewers.result == 'failure' }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       - name: Send notification
         uses: ./.github/actions/send-webhook-notification
         with:
